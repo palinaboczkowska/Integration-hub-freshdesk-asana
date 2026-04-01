@@ -1,0 +1,7 @@
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Local.json
+
+bin/
+obj/
+
