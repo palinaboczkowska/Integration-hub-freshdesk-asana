@@ -10,104 +10,85 @@ public class AsanaToFreshdeskSyncService(
     AsanaClient asanaClient,
     FreshdeskClient freshdeskClient,
     IMappingRepository mappingRepository,
+    IConfiguration configuration,
     ILogger<AsanaToFreshdeskSyncService> logger)
     : IAsanaToFreshdeskSyncService
 {
-    private readonly AsanaClient _asanaClient = asanaClient;
-    private readonly FreshdeskClient _freshdeskClient = freshdeskClient;
-    private readonly IMappingRepository _mappingRepository = mappingRepository;
-    private readonly ILogger<AsanaToFreshdeskSyncService> _logger = logger;
+    private const int FreshdeskOpenStatus = 2;
+    private const int FreshdeskResolvedStatus = 4;
+    private const int FreshdeskDefaultPriority = 1; // Low
 
     public async Task SyncTaskToFreshdeskAsync(string asanaTaskId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(asanaTaskId))
-        {
             throw new ArgumentException("Asana task id must be provided.", nameof(asanaTaskId));
-        }
 
-        // Get Asana task details
-        var asanaResponse = await _asanaClient.GetTask(asanaTaskId, cancellationToken);
+        var asanaResponse = await asanaClient.GetTask(asanaTaskId, cancellationToken);
         asanaResponse.EnsureSuccessStatusCode();
 
         var asanaTask = await asanaResponse.Content.ReadFromJsonAsync<AsanaTaskDto>(cancellationToken: cancellationToken);
         if (asanaTask?.Data == null)
-        {
             throw new InvalidOperationException($"Unable to deserialize Asana task {asanaTaskId}");
-        }
 
-        var existingMapping = _mappingRepository.GetByAsanaTaskId(asanaTaskId);
+        var systemEmail = configuration["Freshdesk:SystemEmail"]
+            ?? throw new InvalidOperationException("Freshdesk:SystemEmail is not configured.");
 
+        var ticketFields = new
+        {
+            subject = asanaTask.Data.Name,
+            description = asanaTask.Data.Notes,
+            email = systemEmail,
+            status = FreshdeskOpenStatus,
+            priority = FreshdeskDefaultPriority
+        };
+        var existingMapping = mappingRepository.GetByAsanaTaskId(asanaTaskId);
         long freshdeskTicketId;
 
         if (existingMapping == null)
         {
-            // Create new Freshdesk ticket
-            var createPayload = new
+            var fdResponse = await freshdeskClient.CreateTicket(ticketFields, cancellationToken);
+            if (!fdResponse.IsSuccessStatusCode)
             {
-                subject = asanaTask.Data.Name,
-                description = asanaTask.Data.Notes
-            };
-
-            var fdResponse = await _freshdeskClient.CreateTicket(createPayload, cancellationToken);
-            fdResponse.EnsureSuccessStatusCode();
+                var errorBody = await fdResponse.Content.ReadAsStringAsync(cancellationToken);
+                logger.LogError("Failed to create Freshdesk ticket from Asana task {TaskId}. Status: {Status}, Body: {Body}",
+                    asanaTaskId, (int)fdResponse.StatusCode, errorBody);
+                fdResponse.EnsureSuccessStatusCode();
+            }
 
             var createdTicket = await fdResponse.Content.ReadFromJsonAsync<FreshdeskTicketCreatedDto>(cancellationToken: cancellationToken);
             if (createdTicket == null)
-            {
                 throw new InvalidOperationException("Unable to deserialize created Freshdesk ticket response.");
-            }
 
             freshdeskTicketId = createdTicket.Id;
 
-            var mapping = new TicketSyncMapping
+            await mappingRepository.SaveAsync(new TicketSyncMapping
             {
                 FreshdeskTicketId = freshdeskTicketId,
                 AsanaTaskId = asanaTaskId,
                 SyncedAtUtc = DateTime.UtcNow
-            };
+            }, cancellationToken);
 
-            await _mappingRepository.SaveAsync(mapping, cancellationToken);
-
-            _logger.LogInformation("Created Freshdesk ticket {TicketId} from Asana task {TaskId}", freshdeskTicketId, asanaTaskId);
+            logger.LogInformation("Created Freshdesk ticket {TicketId} from Asana task {TaskId}", freshdeskTicketId, asanaTaskId);
         }
         else
         {
-            // Update existing Freshdesk ticket
             freshdeskTicketId = existingMapping.FreshdeskTicketId;
 
-            var updatePayload = new
-            {
-                subject = asanaTask.Data.Name,
-                description = asanaTask.Data.Notes
-            };
+            (await freshdeskClient.UpdateTicket(freshdeskTicketId, ticketFields, cancellationToken)).EnsureSuccessStatusCode();
 
-            var fdResponse = await _freshdeskClient.UpdateTicket(freshdeskTicketId, updatePayload, cancellationToken);
-            fdResponse.EnsureSuccessStatusCode();
-
-            _logger.LogInformation("Updated Freshdesk ticket {TicketId} from Asana task {TaskId}", freshdeskTicketId, asanaTaskId);
+            logger.LogInformation("Updated Freshdesk ticket {TicketId} from Asana task {TaskId}", freshdeskTicketId, asanaTaskId);
         }
 
-        // Close ticket if task is completed
         if (asanaTask.Data.Completed)
         {
-            var closePayload = new
-            {
-                status = 4 // Resolved
-            };
+            (await freshdeskClient.UpdateTicket(freshdeskTicketId, new { status = FreshdeskResolvedStatus }, cancellationToken)).EnsureSuccessStatusCode();
 
-            var closeResponse = await _freshdeskClient.UpdateTicket(freshdeskTicketId, closePayload, cancellationToken);
-            closeResponse.EnsureSuccessStatusCode();
-
-            _logger.LogInformation(
+            logger.LogInformation(
                 "Closed Freshdesk ticket {TicketId} because Asana task {TaskId} is completed",
-                freshdeskTicketId,
-                asanaTaskId);
+                freshdeskTicketId, asanaTaskId);
         }
-
-
     }
 
-    // Minimal Asana task DTO for reverse sync
     private sealed class AsanaTaskDto
     {
         public AsanaTaskData? Data { get; set; }
@@ -119,7 +100,6 @@ public class AsanaToFreshdeskSyncService(
         public string Name { get; set; } = string.Empty;
         public string Notes { get; set; } = string.Empty;
         public bool Completed { get; set; }
-
     }
 
     private sealed class FreshdeskTicketCreatedDto
@@ -127,4 +107,3 @@ public class AsanaToFreshdeskSyncService(
         public long Id { get; set; }
     }
 }
-

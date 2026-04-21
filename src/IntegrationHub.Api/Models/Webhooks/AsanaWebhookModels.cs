@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace IntegrationHub.Api.Models.Webhooks;
 
 public class AsanaWebhookEnvelope
@@ -16,7 +18,9 @@ public class AsanaWebhookEvent
 public class AsanaResource
 {
     public string Gid { get; set; } = string.Empty;
-    public string Resource_Type { get; set; } = string.Empty;
+
+    [JsonPropertyName("resource_type")]
+    public string ResourceType { get; set; } = string.Empty;
 }
 
 public class AsanaChange

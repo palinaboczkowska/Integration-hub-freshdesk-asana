@@ -12,17 +12,16 @@ public class AsanaClient
         _httpClient = httpClient;
 
         var baseUrl = configuration["Asana:BaseUrl"] ?? "https://app.asana.com/api/1.0";
-
         var token = configuration["Asana:Token"] ?? "YOUR_ASANA_TOKEN";
 
-        _httpClient.BaseAddress = new Uri(baseUrl);
-        _httpClient.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", token);
-        _httpClient.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/json"));
+        // Trailing slash is required: without it HttpClient replaces the last path segment
+        // when combining the base ("api/1.0") with a relative path ("tasks").
+        _httpClient.BaseAddress = new Uri(baseUrl.TrimEnd('/') + '/');
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    // Важно: пути без начального "/" чтобы корректно дополнять BaseAddress "/api/1.0"
+    // Paths must NOT start with "/" to correctly resolve against BaseAddress (/api/1.0).
     public Task<HttpResponseMessage> CreateTask(object taskPayload, CancellationToken cancellationToken = default) =>
         _httpClient.PostAsJsonAsync("tasks", taskPayload, cancellationToken);
 
@@ -35,4 +34,3 @@ public class AsanaClient
     public Task<HttpResponseMessage> GetTask(string taskId, CancellationToken cancellationToken = default) =>
         _httpClient.GetAsync($"tasks/{taskId}", cancellationToken);
 }
-

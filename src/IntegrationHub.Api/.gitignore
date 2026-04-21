@@ -1,1 +1,3 @@
 integrationhub.db
+.env
+.env.local

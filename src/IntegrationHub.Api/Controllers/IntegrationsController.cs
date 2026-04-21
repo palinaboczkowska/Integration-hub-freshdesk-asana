@@ -8,23 +8,17 @@ namespace IntegrationHub.Api.Controllers;
 public class IntegrationsController(IIntegrationService integrationService, ILogger<IntegrationsController> logger)
     : ControllerBase
 {
-    private readonly IIntegrationService _integrationService = integrationService;
-    private readonly ILogger<IntegrationsController> _logger = logger;
-
     [HttpGet]
     public IActionResult Get()
     {
-        _logger.LogInformation("Fetching available integrations");
-        var integrations = _integrationService.GetAvailableIntegrations();
-        return Ok(integrations);
+        logger.LogInformation("Fetching available integrations");
+        return Ok(integrationService.GetAvailableIntegrations());
     }
 
     [HttpGet("settings")]
     public IActionResult GetSettings()
     {
-        _logger.LogInformation("Fetching integration hub settings");
-        var settings = _integrationService.GetSettings();
-        return Ok(settings);
+        logger.LogInformation("Fetching integration hub settings");
+        return Ok(integrationService.GetSettings());
     }
 }
-

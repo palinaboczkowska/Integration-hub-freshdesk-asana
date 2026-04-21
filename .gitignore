@@ -2,6 +2,10 @@ appsettings.Development.json
 appsettings.Production.json
 appsettings.Local.json
 
+.env
+.env.local
+
 bin/
 obj/
 
+.DS_Store

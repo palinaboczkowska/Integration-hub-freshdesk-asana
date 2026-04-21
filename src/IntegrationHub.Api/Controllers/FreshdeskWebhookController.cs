@@ -8,9 +8,6 @@ namespace IntegrationHub.Api.Controllers;
 public class FreshdeskWebhookController(ITicketSyncService ticketSyncService, ILogger<FreshdeskWebhookController> logger)
     : ControllerBase
 {
-    private readonly ITicketSyncService _ticketSyncService = ticketSyncService;
-    private readonly ILogger<FreshdeskWebhookController> _logger = logger;
-
     public class FreshdeskWebhookPayload
     {
         public FreshdeskTicket Ticket { get; set; } = new();
@@ -24,13 +21,10 @@ public class FreshdeskWebhookController(ITicketSyncService ticketSyncService, IL
             return BadRequest("Missing ticket data in webhook payload.");
         }
 
-        var ticket = payload.Ticket;
+        logger.LogInformation("Received Freshdesk ticket webhook for ticket {TicketId}", payload.Ticket.Id);
 
-        _logger.LogInformation("Received Freshdesk ticket webhook for ticket {TicketId}", ticket.Id);
-
-        var asanaTaskId = await _ticketSyncService.SyncFromFreshdeskTicketAsync(ticket, cancellationToken);
+        var asanaTaskId = await ticketSyncService.SyncFromFreshdeskTicketAsync(payload.Ticket, cancellationToken);
 
         return Ok(new { asanaTaskId });
     }
 }
-
